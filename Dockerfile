@@ -12,7 +12,8 @@ ENV COMPANY_NAME=$COMPANY_NAME \
     APPLICATION_NAME=$COMPANY_NAME \
     DS_VERSION_HASH=$DS_VERSION_HASH \
     NODE_ENV=production-linux \
-    NODE_CONFIG_DIR=/etc/$COMPANY_NAME/documentserver
+    NODE_CONFIG_DIR=/etc/$COMPANY_NAME/documentserver \
+    PKG_NATIVE_CACHE_PATH=/tmp/.cache
 
 RUN dnf -y updateinfo list --security && \
     dnf update --security -y && \
