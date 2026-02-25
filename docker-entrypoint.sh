@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
 set -e
 
+# --------------------------------------------------------------------
+# Service mode (first positional argument)
+# Supported modes:
+#   - docservice
+#   - converter
+#   - adminpanel
+# --------------------------------------------------------------------
+MODE="${1:-docservice}"
+shift || true
+
+case "$MODE" in
+  docservice|converter|adminpanel)
+    ;;
+  *)
+    echo "Unknown mode: $MODE (use: docservice|converter|adminpanel)" >&2
+    exit 2
+    ;;
+esac
+
 if [[ -n ${LOG_LEVEL} ]]; then
   sed 's/\(^.\+"level":\s*"\).\+\(".*$\)/\1'$LOG_LEVEL'\2/g' -i /etc/$COMPANY_NAME/documentserver/log4js/production.json
 fi
@@ -55,6 +74,9 @@ else
   REDIS_CLUSTER=''
 fi
 
+# --------------------------------------------------------------------
+# NODE_CONFIG (exported for Docs services)
+# --------------------------------------------------------------------
 export NODE_CONFIG='{
   "statsd": {
     "useMetrics": '${METRICS_ENABLED:-false}',
@@ -161,7 +183,8 @@ export NODE_CONFIG='{
   },
   "FileConverter": {
     "converter": {
-        "maxprocesscount": 0.001
+        "maxprocesscount": 0.001,
+        "signingKeyStorePath": "/var/www/'${COMPANY_NAME}'/config/signing-keystore.p12"
     }
   },
   "storage": {
@@ -180,4 +203,114 @@ export NODE_CONFIG='{
   }
 }'
 
-exec "$@"
+WORK_DIR="/var/www/$COMPANY_NAME/documentserver"
+BUILD_FONTS=false
+BUILD_PLUGINS=false
+BUILD_DICTIONARIES=false
+
+OPTIND=1
+while getopts ":fpd" opt; do
+  case "$opt" in
+    f) BUILD_FONTS=true ;;
+    p) BUILD_PLUGINS=true ;;
+    d) BUILD_DICTIONARIES=true ;;
+    \?)
+      echo "Unknown option: -$OPTARG" >&2
+      exit 2
+      ;;
+  esac
+done
+
+shift $((OPTIND - 1))
+
+if [[ "${BUILD_FONTS}" == "true" ]]; then
+  if [[ "$MODE" == "converter" ]]; then
+    if [ "$(find "$WORK_DIR/fonts" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+      echo -e "\e[0;32m Fonts have already been added, preparatory steps, please wait... \e[0m"
+      cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/AllFonts.js $WORK_DIR/sdkjs/common/
+      cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/bin/* $WORK_DIR/server/FileConverter/bin/
+      echo -e "\e[0;32m Completed \e[0m"
+    else
+      if [[ -n "$DOCS_SHARDS" ]]; then
+        echo -e "\e[0;32m Waiting for Fonts to be added, please wait... \e[0m"
+        until [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8888/index.html || true)" = "200" ]
+        do
+          sleep 5
+        done
+        cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/AllFonts.js $WORK_DIR/sdkjs/common/
+        cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/bin/* $WORK_DIR/server/FileConverter/bin/
+      else
+        echo -e "\e[0;32m Run Fonts adding, please wait... \e[0m"
+        cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/Images/* $WORK_DIR/sdkjs/common/Images/
+        cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/themes/* $WORK_DIR/sdkjs/slide/themes/
+        cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/fonts/* $WORK_DIR/fonts/
+        cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/AllFonts.js $WORK_DIR/sdkjs/common/
+        cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/bin/* $WORK_DIR/server/FileConverter/bin/
+      fi
+      echo -e "\e[0;32m Fonts have been added successfully \e[0m"
+    fi
+  fi
+fi
+
+if [[ "${BUILD_PLUGINS}" == "true" ]]; then
+  if [[ "$MODE" != "converter" ]]; then
+    if [ "$(find "$WORK_DIR/sdkjs-plugins" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+      echo -e "\e[0;32m Plugins have already been added... \e[0m"
+    else
+      echo -e "\e[0;32m Waiting for Plugins to be added, please wait... \e[0m"
+      until [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8888/ 2>/dev/null || true)" != "000" ]
+      do
+        sleep 5
+      done
+      echo -e "\e[0;32m Plugins have been added successfully \e[0m"
+    fi
+  fi
+fi
+
+if [[ "${BUILD_DICTIONARIES}" == "true" ]]; then
+  if [[ "$MODE" == "converter" ]]; then
+    echo -e "\e[0;32m Run Dictionaries adding, please wait... \e[0m"
+    ( find $WORK_DIR/sdkjs/cell $WORK_DIR/sdkjs/word $WORK_DIR/sdkjs/slide $WORK_DIR/sdkjs/visio -maxdepth 1 -type f \( -name '*.js' -o -name '*.bin' \)
+      echo "$WORK_DIR/sdkjs/common/spell/spell/spell.js" ) | while read -r file; do
+        chmod 740 "$file"
+        dir=$(basename "$(dirname "$file")")
+        base_file=$(basename "$file")
+        if [[ "${base_file}" == "spell.js" ]]; then
+          target_dir="$WORK_DIR/sdkjs/common/spell/$dir"
+        else
+          target_dir="$WORK_DIR/sdkjs/$dir"
+        fi
+        cp -a "/var/lib/$COMPANY_NAME/documentserver/buffer/dictionaries/$dir/$base_file" "$target_dir/"
+        chmod 440 "$target_dir/$base_file"
+    done
+    if [ "$(find "$WORK_DIR/dictionaries" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+      echo -e "\e[0;32m Completed \e[0m"
+    else
+      if [[ -n "$DOCS_SHARDS" ]]; then
+        echo -e "\e[0;32m Waiting for Dictionaries to be added, please wait... \e[0m"
+        until [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8888/index.html || true)" = "200" ]
+        do
+          sleep 5
+        done
+      else
+        cp -ra /var/lib/$COMPANY_NAME/documentserver/buffer/dictionaries/dictionaries/* $WORK_DIR/dictionaries/
+      fi
+      echo -e "\e[0;32m Dictionaries have been added successfully \e[0m"
+    fi
+  fi
+fi
+
+# --------------------------------------------------------------------
+# Exec docs service
+# --------------------------------------------------------------------
+case "$MODE" in
+  docservice)
+    exec "/var/www/${COMPANY_NAME}/documentserver/server/DocService/docservice" "$@"
+    ;;
+  converter)
+    exec "/var/www/${COMPANY_NAME}/documentserver/server/FileConverter/converter" "$@"
+    ;;
+  adminpanel)
+    exec "/var/www/${COMPANY_NAME}/documentserver/server/AdminPanel/server/adminpanel" "$@"
+    ;;
+esac

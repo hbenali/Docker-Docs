@@ -1,0 +1,52 @@
+services:
+  docs:
+    build:
+      context: .
+      dockerfile: ${DOCKERFILE}
+      target: docs
+    image: ${ACCOUNT_NAME}/${PREFIX_NAME}-cluster${PRODUCT_EDITION}:${DOCKER_TAG}
+
+  proxy:
+    build:
+      context: .
+      dockerfile: ${DOCKERFILE}
+      target: proxy
+    image: ${ACCOUNT_NAME}/${PREFIX_NAME}-proxy${PRODUCT_EDITION}:${DOCKER_TAG}
+
+  docservice:
+    build:
+      context: .
+      dockerfile: ${DOCKERFILE}
+      target: docservice
+    image: ${ACCOUNT_NAME}/${PREFIX_NAME}-docservice${PRODUCT_EDITION}:${DOCKER_TAG}
+
+  converter:
+    build:
+      context: .
+      dockerfile: ${DOCKERFILE}
+      target: converter
+    image: ${ACCOUNT_NAME}/${PREFIX_NAME}-converter${PRODUCT_EDITION}:${DOCKER_TAG}
+
+  utils:
+    container_name: utils
+    build:
+      context: .
+      dockerfile: ${DOCKERFILE}
+      target: utils
+    image: ${ACCOUNT_NAME}/${PREFIX_NAME}-utils:${DOCKER_TAG}
+    stdin_open: true
+    restart: always
+
+  metrics:
+    build:
+      context: .
+      dockerfile: ${DOCKERFILE}
+      target: metrics
+    expose:
+      - '8125'
+      - '8126'
+
+  postgresql:
+    build:
+      context: .
+      target: db
