@@ -170,6 +170,9 @@ COPY --chown=ds:ds --from=ds-service \
 COPY --from=ds-service \
     /var/www/$COMPANY_NAME/documentserver/document-templates/new \
     /var/www/$COMPANY_NAME/documentserver/document-templates/new
+COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/document-formats \
+    /var/www/$COMPANY_NAME/documentserver/document-formats
 COPY --chown=ds:ds --from=ds-service \
     /var/www/$COMPANY_NAME/documentserver-example/welcome \
     /var/www/$COMPANY_NAME/documentserver-example/welcome
