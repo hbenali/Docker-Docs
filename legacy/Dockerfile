@@ -27,14 +27,11 @@ RUN dnf -y updateinfo list --security && \
                 libaio \
                 libnsl \
                 nano \
-                gettext \
-                nginx \
-                httpd-tools \
                 wget -y && \
-    pip3 install --no-cache-dir redis && \
+    pip3 install redis && \
     wget -O /usr/local/bin/dumb-init https://github.com/Yelp/dumb-init/releases/download/v1.2.5/dumb-init_1.2.5_$(uname -m) && \
     chmod +x /usr/local/bin/dumb-init && \
-    mkdir -p /oracle/instantclient /opt/oracle /home/ds /etc/nginx/includes && \
+    mkdir -p /oracle/instantclient /opt/oracle /home/ds && \
     wget -O /oracle/basic.zip https://download.oracle.com/otn_software/linux/instantclient/2370000/instantclient-basic-linux.x64-23.7.0.25.01.zip && \
     unzip /oracle/basic.zip -d /oracle/instantclient && \
     mv /oracle/instantclient/instantclient_23_7 /opt/oracle/instantclient_23_7 && \
@@ -42,8 +39,6 @@ RUN dnf -y updateinfo list --security && \
     groupadd --system --gid 101 ds && \
     useradd --system -g ds --no-create-home --shell /sbin/nologin --uid 101 ds && \
     chown -R ds:ds /home/ds && \
-    dnf clean all && \
-    rm -rf /var/cache/dnf && \
     rm -f /var/log/*log
 
 FROM ds-base AS ds-service
@@ -56,7 +51,8 @@ ARG PRODUCT_URL=${PRODUCT_BASEURL}${PRODUCT_EDITION}${RELEASE_VERSION}.${TARGETA
 ENV TARGETARCH=$TARGETARCH \
     DS_VERSION_HASH=$DS_VERSION_HASH
 WORKDIR /ds
-RUN dnf -y install https://download.onlyoffice.com/install/misc/linux/msttcore-fonts-installer-2.6-1.noarch.rpm && \
+RUN useradd --no-create-home --shell /sbin/nologin nginx && \
+    dnf -y install https://download.onlyoffice.com/install/misc/linux/msttcore-fonts-installer-2.6-1.noarch.rpm && \
     PRODUCT_URL=$(echo $PRODUCT_URL | sed "s/"$TARGETARCH"/"$(uname -m)"/g") && \
     PACKAGE_NAME=$(basename "$PRODUCT_URL") && \
     wget $PRODUCT_URL && \
@@ -83,19 +79,10 @@ COPY --chown=ds:ds \
 RUN documentserver-generate-allfonts.sh true && \
     python3 /var/www/onlyoffice/documentserver/server/dictionaries/update.py && \
     documentserver-flush-cache.sh -h $DS_VERSION_HASH -r false && \
+    documentserver-pluginsmanager.sh -r false \
+    --update=\"/var/www/$COMPANY_NAME/documentserver/sdkjs-plugins/plugin-list-default.json\"
 
-# --------------------------------------------------------------------------------
-# This image contains ALL runtime components (DocService, Converter, Adminpanel and
-# Proxy) and is intended to be reused by
-# multiple Kubernetes Deployments
-#
-# Model:
-#   - Select the Docs service via container args (docservice|converter|adminpanel)
-#   - For the Proxy Deployment, override ONLY `command` in the
-#     PodSpec to run proxy-docker-entrypoint.sh directly
-# --------------------------------------------------------------------------------
-
-FROM ds-base AS docs
+FROM ds-base AS proxy
 ENV DOCSERVICE_HOST_PORT=localhost:8000 \
     ADMINPANEL_HOST_PORT=localhost:9000 \
     EXAMPLE_HOST_PORT=localhost:3000 \
@@ -104,22 +91,13 @@ ENV DOCSERVICE_HOST_PORT=localhost:8000 \
     NGINX_CLIENT_MAX_BODY_SIZE=100m \
     NGINX_WORKER_CONNECTIONS=4096 \
     NGINX_WORKER_PROCESSES=1
+EXPOSE 8888
+RUN dnf -y install gettext nginx httpd-tools && \
+    dnf clean all && \
+    rm -f /var/log/*log && \
+    mkdir -p /etc/nginx/includes
 COPY --chown=ds:ds config/nginx/nginx.conf /etc/nginx/nginx.conf
-COPY --chown=ds:ds --from=ds-service \
-    /usr/bin/documentserver-generate-allfonts.sh \
-    /usr/local/bin/
-COPY --from=ds-service \
-    /var/www/$COMPANY_NAME/documentserver/server/dictionaries/update.py \
-    /var/www/$COMPANY_NAME/documentserver/server/dictionaries/update.py
-COPY --from=ds-service \
-    /var/www/$COMPANY_NAME/documentserver/server/tools/allfontsgen \
-    /var/www/$COMPANY_NAME/documentserver/server/tools/allfontsgen
-COPY --from=ds-service \
-    /var/www/$COMPANY_NAME/documentserver/server/tools/allthemesgen \
-    /var/www/$COMPANY_NAME/documentserver/server/tools/allthemesgen
-COPY --from=ds-service \
-    /var/www/$COMPANY_NAME/documentserver/server/tools/pluginsmanager \
-    /var/www/$COMPANY_NAME/documentserver/server/tools/pluginsmanager
+COPY --chown=ds:ds proxy-docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY --chown=ds:ds --chmod=644 --from=ds-service \
     /etc/$COMPANY_NAME/documentserver/nginx/ds.conf \
     /etc/nginx/conf.d/
@@ -128,56 +106,26 @@ COPY --chown=ds:ds --chmod=644 --from=ds-service \
     /etc/nginx/includes/ds-cache.conf \
     /etc/nginx/includes/
 COPY --chown=ds:ds --from=ds-service \
-    /var/www/$COMPANY_NAME/documentserver/dictionaries \
-    /var/www/$COMPANY_NAME/documentserver/dictionaries
-COPY --from=ds-service \
-    /etc/$COMPANY_NAME/documentserver/default.json \
-    /etc/$COMPANY_NAME/documentserver/production-linux.json \
-    /etc/$COMPANY_NAME/documentserver/
-COPY --from=ds-service --chown=ds:ds \
-    /etc/$COMPANY_NAME/documentserver/log4js/production.json \
-    /etc/$COMPANY_NAME/documentserver/log4js/
-COPY --from=ds-service \
-    /var/www/$COMPANY_NAME/documentserver/core-fonts \
-    /var/www/$COMPANY_NAME/documentserver/core-fonts
-COPY --chown=ds:ds --from=ds-service \
     /var/www/$COMPANY_NAME/documentserver/fonts \
     /var/www/$COMPANY_NAME/documentserver/fonts
-COPY --from=ds-service \
-    /usr/share/fonts \
-    /usr/share/fonts
 COPY --chown=ds:ds --from=ds-service \
     /var/www/$COMPANY_NAME/documentserver/sdkjs \
     /var/www/$COMPANY_NAME/documentserver/sdkjs
-COPY --from=ds-service \
-    /var/www/$COMPANY_NAME/documentserver/server/DocService \
-    /var/www/$COMPANY_NAME/documentserver/server/DocService
-COPY --from=ds-service \
-    /var/www/$COMPANY_NAME/documentserver/server/FileConverter \
-    /var/www/$COMPANY_NAME/documentserver/server/FileConverter
-COPY --from=ds-service \
-    /var/www/$COMPANY_NAME/documentserver/server/AdminPanel/server \
-    /var/www/$COMPANY_NAME/documentserver/server/AdminPanel/server
 COPY --chown=ds:ds --from=ds-service \
-    /var/www/$COMPANY_NAME/documentserver/server/AdminPanel/client \
-    /client
-COPY --from=ds-service \
-    /var/www/$COMPANY_NAME/documentserver/server/info \
-    /var/www/$COMPANY_NAME/documentserver/server/info
+    /var/www/$COMPANY_NAME/documentserver/sdkjs-plugins \
+    /var/www/$COMPANY_NAME/documentserver/sdkjs-plugins
 COPY --chown=ds:ds --from=ds-service \
     /var/www/$COMPANY_NAME/documentserver/web-apps \
     /var/www/$COMPANY_NAME/documentserver/web-apps
 COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/dictionaries \
+    /var/www/$COMPANY_NAME/documentserver/dictionaries
+COPY --from=ds-service \
     /var/www/$COMPANY_NAME/documentserver/document-templates/new \
     /var/www/$COMPANY_NAME/documentserver/document-templates/new
-COPY --from=ds-service \
-    /var/www/$COMPANY_NAME/documentserver/document-formats \
-    /var/www/$COMPANY_NAME/documentserver/document-formats
 COPY --chown=ds:ds --from=ds-service \
     /var/www/$COMPANY_NAME/documentserver-example/welcome \
     /var/www/$COMPANY_NAME/documentserver-example/welcome
-COPY docker-entrypoint.sh proxy-docker-entrypoint.sh /usr/local/bin/
-COPY init-docker-entrypoint.sh /init/
 RUN sed 's|\(application\/zip.*\)|\1\n    application\/wasm wasm;|' \
         -i /etc/nginx/mime.types && \
     sed 's,\(listen.\+:\)\([0-9]\+\)\(.*;\),'"\18888\3"',' \
@@ -195,10 +143,8 @@ RUN sed 's|\(application\/zip.*\)|\1\n    application\/wasm wasm;|' \
     ln -sf /dev/stderr /var/log/nginx/error.log && \
     mkdir -p \
         /var/lib/$COMPANY_NAME/documentserver/App_Data/cache/files \
-        /var/www/$COMPANY_NAME/documentserver/sdkjs-plugins \
-        /var/www/$COMPANY_NAME/config \
         /var/lib/$COMPANY_NAME/documentserver/App_Data/docbuilder && \
-    chown -R ds:ds /var/lib/$COMPANY_NAME/documentserver /var/www/$COMPANY_NAME/config && \
+    chown -R ds:ds /var/lib/$COMPANY_NAME/documentserver && \
     find \
         /var/www/$COMPANY_NAME/documentserver/fonts \
         -type f ! \
@@ -206,6 +152,7 @@ RUN sed 's|\(application\/zip.*\)|\1\n    application\/wasm wasm;|' \
         -exec sh -c 'gzip -cf9 $0 > $0.gz && chown ds:ds $0.gz' {} \; && \
     find \
         /var/www/$COMPANY_NAME/documentserver/sdkjs \
+        /var/www/$COMPANY_NAME/documentserver/sdkjs-plugins \
         /var/www/$COMPANY_NAME/documentserver/web-apps \
         /var/www/$COMPANY_NAME/documentserver-example/welcome \
         -type f \
@@ -213,72 +160,103 @@ RUN sed 's|\(application\/zip.*\)|\1\n    application\/wasm wasm;|' \
         -exec sh -c 'gzip -cf9 $0 > $0.gz && chown ds:ds $0.gz' {} \;
 VOLUME /var/lib/$COMPANY_NAME
 USER ds
+ENTRYPOINT docker-entrypoint.sh
 
-# --------------------------------------------------------------------
-# Default entrypoint for Docs services
-# Do NOT override this for DocService/Converter/Adminpanel; only provide `args`
-# --------------------------------------------------------------------
-ENTRYPOINT ["dumb-init", "--", "docker-entrypoint.sh"]
+FROM ds-base AS docservice
+EXPOSE 8000
+COPY --from=ds-service \
+    /etc/$COMPANY_NAME/documentserver/default.json \
+    /etc/$COMPANY_NAME/documentserver/production-linux.json \
+    /etc/$COMPANY_NAME/documentserver/
+COPY --from=ds-service --chown=ds:ds \
+    /etc/$COMPANY_NAME/documentserver/log4js/production.json \
+    /etc/$COMPANY_NAME/documentserver/log4js/
+COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/sdkjs-plugins \
+    /var/www/$COMPANY_NAME/documentserver/sdkjs-plugins
+COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/web-apps/apps/common/main/resources/themes \
+    /var/www/$COMPANY_NAME/documentserver/web-apps/apps/common/main/resources/themes
+COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/server/DocService \
+    /var/www/$COMPANY_NAME/documentserver/server/DocService
+COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/server/info \
+    /var/www/$COMPANY_NAME/documentserver/server/info
+COPY --chown=ds:ds --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/web-apps/apps/api/wopi \
+    /var/www/$COMPANY_NAME/documentserver/web-apps/apps/api/wopi
+COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/document-templates/new \
+    /var/www/$COMPANY_NAME/documentserver/document-templates/new
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN mkdir -p /var/www/$COMPANY_NAME/config && \
+    chown -R ds:ds /var/www/$COMPANY_NAME/config
+USER ds
+ENTRYPOINT dumb-init docker-entrypoint.sh /var/www/$COMPANY_NAME/documentserver/server/DocService/docservice
+HEALTHCHECK --interval=10s --timeout=3s CMD curl -sf http://localhost:8000/index.html
 
-# --------------------------------------------------------------------
-# Default execution mode for the image.
-# Kubernetes `args` override this value:
-#   - DocService Deployment:
-#       args: ["docservice", ...]
-#   - Converter Deployment:
-#       args: ["converter", ...]
-#   - Adminpanel Deployment:
-#       args: ["adminpanel"]
-#
-# Proxy Deployment should override `command` instead:
-#   command: ["proxy-docker-entrypoint.sh"]
-#   args: [...]
-# --------------------------------------------------------------------
-CMD ["docservice"]
+FROM ds-base AS converter
+COPY --from=ds-service \
+    /etc/$COMPANY_NAME/documentserver/default.json \
+    /etc/$COMPANY_NAME/documentserver/production-linux.json \
+    /etc/$COMPANY_NAME/documentserver/
+COPY --from=ds-service --chown=ds:ds \
+    /etc/$COMPANY_NAME/documentserver/log4js/production.json \
+    /etc/$COMPANY_NAME/documentserver/log4js/
+COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/core-fonts \
+    /var/www/$COMPANY_NAME/documentserver/core-fonts
+COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/fonts \
+    /var/www/$COMPANY_NAME/documentserver/fonts
+COPY --from=ds-service \
+    /usr/share/fonts \
+    /usr/share/fonts
+COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/sdkjs \
+    /var/www/$COMPANY_NAME/documentserver/sdkjs
+COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/server/FileConverter \
+    /var/www/$COMPANY_NAME/documentserver/server/FileConverter
+COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/server/info \
+    /var/www/$COMPANY_NAME/documentserver/server/info
+COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/web-apps \
+    /var/www/$COMPANY_NAME/documentserver/web-apps
+COPY --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/document-templates/new \
+    /var/www/$COMPANY_NAME/documentserver/document-templates/new
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN mkdir -p \
+        /var/lib/$COMPANY_NAME/documentserver/App_Data/cache/files \
+        /var/www/$COMPANY_NAME/config \
+        /var/lib/$COMPANY_NAME/documentserver/App_Data/docbuilder && \
+    chown -R ds:ds /var/lib/$COMPANY_NAME/documentserver /var/www/$COMPANY_NAME/config
+USER ds
+ENTRYPOINT dumb-init docker-entrypoint.sh /var/www/$COMPANY_NAME/documentserver/server/FileConverter/converter
 
-# --------------------------------------------------------------------
-# Compatibility stage: proxy
-#
-# This stage is kept for backward compatibility
-#
-# No additional files or configuration are added here; the image
-# is identical to `docs` except for the default execution mode
-# --------------------------------------------------------------------
-FROM docs AS proxy
-ENTRYPOINT ["proxy-docker-entrypoint.sh"]
-
-# --------------------------------------------------------------------
-# Compatibility stage: docservice
-#
-# This stage is kept for backward compatibility
-#
-# No additional files or configuration are added here; the image
-# is identical to `docs` except for the default execution mode
-# --------------------------------------------------------------------
-FROM docs AS docservice
-CMD ["docservice"]
-
-# --------------------------------------------------------------------
-# Compatibility stage: converter
-#
-# This stage is kept for backward compatibility
-#
-# No additional files or configuration are added here; the image
-# is identical to `docs` except for the default execution mode
-# --------------------------------------------------------------------
-FROM docs AS converter
-CMD ["converter"]
-
-# --------------------------------------------------------------------
-# Compatibility stage: adminpanel
-#
-# This stage is kept for backward compatibility
-#
-# No additional files or configuration are added here; the image
-# is identical to `docs` except for the default execution mode
-# --------------------------------------------------------------------
-FROM docs AS adminpanel
-CMD ["adminpanel"]
+FROM ds-base AS adminpanel
+EXPOSE 9000
+COPY --from=ds-service \
+    /etc/$COMPANY_NAME/documentserver/default.json \
+    /etc/$COMPANY_NAME/documentserver/production-linux.json \
+    /etc/$COMPANY_NAME/documentserver/
+COPY --from=ds-service --chown=ds:ds \
+    /etc/$COMPANY_NAME/documentserver/log4js/production.json \
+    /etc/$COMPANY_NAME/documentserver/log4js/
+COPY --chown=ds:ds --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/server/AdminPanel/server \
+    /var/www/$COMPANY_NAME/documentserver/server/AdminPanel/server
+COPY --chown=ds:ds --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/server/AdminPanel/client \
+    /client
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN mkdir -p /var/www/$COMPANY_NAME/config && \
+    chown -R ds:ds /var/www/$COMPANY_NAME/config
+USER ds
+ENTRYPOINT dumb-init docker-entrypoint.sh /var/www/$COMPANY_NAME/documentserver/server/AdminPanel/server/adminpanel
 
 FROM node:20-alpine3.19 AS example
 LABEL maintainer Ascensio System SIA <support@onlyoffice.com>
@@ -322,7 +300,7 @@ EXPOSE 3000
 
 USER ds
 
-ENTRYPOINT ["/var/www/onlyoffice/documentserver-example/docker-entrypoint.sh", "npm", "start"]
+ENTRYPOINT /var/www/onlyoffice/documentserver-example/docker-entrypoint.sh npm start
 
 FROM python:3.11-bookworm AS builder
 RUN pip install redis psycopg2  PyMySQL pika python-qpid-proton func_timeout requests kubernetes flask

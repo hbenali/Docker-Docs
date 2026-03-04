@@ -6,7 +6,6 @@ run-name: >-
   ${{ inputs.edition }}
   ]
   ${{ inputs.docs-balancer && 'balancer: [✓]' || '' }}
-  ${{ inputs.docs-non-plugins && 'non-plugins: [✓]' || '' }}
   ${{ inputs.docs-utils && 'utils: [✓]' || '' }}
   VER: [${{ inputs.tag }}]
 
@@ -24,10 +23,6 @@ on:
       edition:
         description: "Specify Docs edition (ex. 'ee' or 'ee,de') Keep empty if don't need build any Docs edition"
         type: string
-      docs-non-plugins:
-        type: boolean
-        description: 'Build Docs-non-plugins'
-        default: true
       docs-utils:
         type: boolean
         description: 'Build Docs-utils (utils example)'
@@ -99,7 +94,7 @@ jobs:
                               "name": "Build Docs Enterprise",
                               "dockerfile": "Dockerfile",
                               "edition": "-ee",
-                              "images": "proxy docservice converter adminpanel"
+                              "images": "docs proxy docservice converter adminpanel"
                       }
                    ]')
                    ;;
@@ -110,24 +105,13 @@ jobs:
                               "name": "Build Docs Developer",
                               "dockerfile": "Dockerfile",
                               "edition": "-de",
-                              "images": "proxy docservice converter adminpanel"
+                              "images": "docs proxy docservice converter adminpanel"
                       }
                    ]')
                    ;;
               esac
             done
 
-            if ${{ github.event.inputs.docs-non-plugins }}; then
-              matrix=$(echo $matrix | jq '.include += [
-                      {
-                              "name": "Build Docs non-plugins", 
-                              "dockerfile": "Dockerfile.noplugins",
-                              "edition": "-de", 
-                              "images": "proxy docservice converter",
-                              "postfix": "-noplugins"
-                      }
-              ]')
-            fi
             if ${{ github.event.inputs.docs-utils }}; then
               matrix=$(echo $matrix | jq '.include += [
                       {
@@ -184,7 +168,6 @@ jobs:
            DS_VERSION_HASH: ${{ needs.prepare-build.outputs.dsHash }}
            TAG: ${{ github.event.inputs.tag }}
            PLATFORM: ${{ needs.prepare-build.outputs.platform }}
-           NOPLUG_POSTFIX: ${{ matrix.postfix }}
            DOCKERFILE: ${{ matrix.dockerfile }}
            IMAGES: ${{ matrix.images }}
            VERSION: ${{ github.event.inputs.version }}
