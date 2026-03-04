@@ -227,6 +227,12 @@ if [[ "${BUILD_FONTS}" == "true" ]]; then
   if [[ "$MODE" == "converter" ]]; then
     if [ "$(find "$WORK_DIR/fonts" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
       echo -e "\e[0;32m Fonts have already been added, preparatory steps, please wait... \e[0m"
+      if [[ -n "$DOCS_SHARDS" ]]; then
+        until [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8888/index.html || true)" = "200" ]
+        do
+          sleep 5
+        done
+      fi
       cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/AllFonts.js $WORK_DIR/sdkjs/common/
       cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/bin/* $WORK_DIR/server/FileConverter/bin/
       echo -e "\e[0;32m Completed \e[0m"
@@ -244,6 +250,7 @@ if [[ "${BUILD_FONTS}" == "true" ]]; then
         cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/Images/* $WORK_DIR/sdkjs/common/Images/
         cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/themes/* $WORK_DIR/sdkjs/slide/themes/
         cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/fonts/* $WORK_DIR/fonts/
+        cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/custom-k8s/* $WORK_DIR/core-fonts/custom-k8s/
         cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/AllFonts.js $WORK_DIR/sdkjs/common/
         cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/bin/* $WORK_DIR/server/FileConverter/bin/
       fi
@@ -254,15 +261,15 @@ fi
 
 if [[ "${BUILD_PLUGINS}" == "true" ]]; then
   if [[ "$MODE" != "converter" ]]; then
+    echo -e "\e[0;32m Waiting for Plugins to be added, please wait... \e[0m"
+    until [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8888/ 2>/dev/null || true)" != "000" ]
+    do
+      sleep 5
+    done
     if [ "$(find "$WORK_DIR/sdkjs-plugins" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
-      echo -e "\e[0;32m Plugins have already been added... \e[0m"
-    else
-      echo -e "\e[0;32m Waiting for Plugins to be added, please wait... \e[0m"
-      until [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8888/ 2>/dev/null || true)" != "000" ]
-      do
-        sleep 5
-      done
       echo -e "\e[0;32m Plugins have been added successfully \e[0m"
+    else
+      echo -e "\e[0;31m No plugins added \e[0m"
     fi
   fi
 fi
@@ -284,6 +291,12 @@ if [[ "${BUILD_DICTIONARIES}" == "true" ]]; then
         chmod 440 "$target_dir/$base_file"
     done
     if [ "$(find "$WORK_DIR/dictionaries" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+      if [[ -n "$DOCS_SHARDS" ]]; then
+        until [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8888/index.html || true)" = "200" ]
+        do
+          sleep 5
+        done
+      fi
       echo -e "\e[0;32m Completed \e[0m"
     else
       if [[ -n "$DOCS_SHARDS" ]]; then

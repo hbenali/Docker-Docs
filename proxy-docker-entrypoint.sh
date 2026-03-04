@@ -88,6 +88,7 @@ if [[ "${BUILD_FONTS}" == "true" ]]; then
     cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/Images/* $WORK_DIR/sdkjs/common/Images/
     cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/themes/* $WORK_DIR/sdkjs/slide/themes/
     cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/fonts/* $WORK_DIR/fonts/
+    cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/custom-k8s/* $WORK_DIR/core-fonts/custom-k8s/
     cp -a /var/lib/$COMPANY_NAME/documentserver/buffer/fonts/AllFonts.js $WORK_DIR/sdkjs/common/
     find $WORK_DIR/fonts \
       -type f ! \

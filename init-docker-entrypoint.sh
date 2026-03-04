@@ -42,6 +42,7 @@ build_fonts() {
   cp -ra "$WORK_DIR/sdkjs/common/Images/" "$buffer_dir/"
   cp -ra "$WORK_DIR/sdkjs/slide/themes/" "$buffer_dir/"
   cp -ra "$WORK_DIR/fonts" "$buffer_dir/"
+  cp -ra "$WORK_DIR/core-fonts/custom-k8s" "$buffer_dir/"
   cp -a "$WORK_DIR/sdkjs/common/AllFonts.js" "$buffer_dir/"
   cp -a \
     "$WORK_DIR/server/FileConverter/bin/AllFonts.js" \
