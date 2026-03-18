@@ -37,7 +37,7 @@ on:
         required: true
       test-repo:
         type: boolean
-        description: 'Push to test-repo'
+        description: 'Push to 4testing?'
         default: true
       version:
         type: string
@@ -66,17 +66,6 @@ jobs:
         id: prepare
         shell: bash
         run: |
-            ### Check that test-repo specifyed with rc postfix ###
-            if ${{ github.event.inputs.test-repo }}; then
-               if ! [[ ${{ github.event.inputs.tag }} == *rc* ]]; then 
-                  echo -e '\033[33m     ⚠ ALERT ⚠     \033[0m'
-                  echo -e 'Test-Repo: enabled[\033[32m✓\033[0m]'
-                  echo -e 'Please specify tag with <rc>...'
-                  echo -e '\033[33mFor example:\033[0m ${{ github.event.inputs.tag }}-rc25'
-                  exit 1
-               fi
-            fi
-
             ### Make build platforms ###
             [ ${{ github.event.inputs.amd64 }} = true ] && PLATFORMS+=("amd64")
             [ ${{ github.event.inputs.arm64 }} = true ] && PLATFORMS+=("arm64")
@@ -158,13 +147,13 @@ jobs:
       - name: Login to Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ inputs.test-repo && secrets.DOCKER_TEST_REGISTRY || 'docker.io' }}
-          username: ${{ inputs.test-repo && secrets.DOCKER_TEST_USERNAME || secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ inputs.test-repo && secrets.DOCKER_TEST_ACCESS_TOKEN || secrets.DOCKER_HUB_ACCESS_TOKEN }}
+          registry: 'docker.io'
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
       - name: "${{ matrix.name }}"
         env:
-           REGISTRY: ${{ inputs.test-repo && secrets.DOCKER_TEST_REGISTRY || 'docker.io' }}
+           REGISTRY: 'docker.io'
            DS_VERSION_HASH: ${{ needs.prepare-build.outputs.dsHash }}
            TAG: ${{ github.event.inputs.tag }}
            PLATFORM: ${{ needs.prepare-build.outputs.platform }}
@@ -173,25 +162,27 @@ jobs:
            VERSION: ${{ github.event.inputs.version }}
            TEST_REPO: ${{ github.event.inputs.test-repo }}
            PRODUCT_EDITION: ${{ matrix.edition }}
-           PACKAGE_URL: ${{  github.event.inputs.package-url }}
+           PACKAGE_URL: ${{ github.event.inputs.package-url }}
         run: |
           : ${DS_VERSION_HASH:?Should be set!}
 
-          if "${TEST_REPO}"; then
-            echo "Build in repo: 4testing"
-            export PRODUCT_BASEURL=${{ secrets.PRODUCT_BASEURL_RC }}
-            export RELEASE_VERSION="-${VERSION}.el7"
+          ## Set-up env if version specifyed ##
+          if [[ -n "${VERSION}" ]]; then
+             export RELEASE_VERSION="-${VERSION}"
           fi
 
-          if [[ "${TEST_REPO}" != "true" && -n "${VERSION}" ]]; then
-            echo "Build in repo: hub.docker"
-            export RELEASE_VERSION="-${VERSION}"
-            if [[ "${PACKAGE_URL}" == "s3" ]]; then
-              echo "S3 package url was specified..."
-              export PREFIX_NAME="4testing-"
-              export PRODUCT_BASEURL=${{ secrets.PRODUCT_BASEURL_RC }}
-              export RELEASE_VERSION="-${VERSION}.el7"
-            fi
+          ## Set-up env for 4testing build ##
+          if "${TEST_REPO}"; then
+            echo "Build in repo: 4testing"
+            export PREFIX_NAME="4testing-"
+          fi
+
+          ## Set-up env if s3 url enabled ##
+          if [[ "${PACKAGE_URL}" == "s3" ]]; then
+            echo "S3 package url was specified..."
+            : ${VERSION:?Should be set!}
+            export PRODUCT_BASEURL=${{ secrets.PRODUCT_BASEURL_RC }}
+            export RELEASE_VERSION="-${VERSION}.el7"
           fi
 
           docker buildx bake --sbom=true --provenance=mode=max \
