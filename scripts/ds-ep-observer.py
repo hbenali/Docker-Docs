@@ -3,7 +3,7 @@ import logging
 import requests
 import json
 import time
-from kubernetes import client, watch
+from kubernetes import client, config, watch
 
 ep_port = os.environ["SHARD_PORT"]
 ep_name = os.environ["DS_EP_NAME"]
@@ -13,27 +13,14 @@ log_level = os.environ.get('LOG_LEVEL')
 
 url_sending = f'http://127.0.0.1:8000/configuration'
 
-k8s_host = os.environ["KUBERNETES_SERVICE_HOST"]
-api_server = f'https://{k8s_host}'
-pathCrt = '/run/secrets/kubernetes.io/serviceaccount/ca.crt'
-pathToken = '/run/secrets/kubernetes.io/serviceaccount/token'
 pathNS = '/run/secrets/kubernetes.io/serviceaccount/namespace'
-
-with open(pathToken, "r") as f_tok:
-    token = f_tok.read()
-
 with open(pathNS, "r") as f_ns:
     ns = f_ns.read()
 
-configuration = client.Configuration()
-configuration.ssl_ca_cert = pathCrt
-configuration.host = api_server
-configuration.verify_ssl = True
-configuration.debug = False
-configuration.api_key = {"authorization": "Bearer " + token}
-client.Configuration.set_default(configuration)
-v1 = client.CoreV1Api()
-apps = client.AppsV1Api()
+
+def _get_clients():
+    config.load_incluster_config()
+    return client.CoreV1Api(), client.AppsV1Api()
 
 
 def init_logger(name):
@@ -47,7 +34,7 @@ def init_logger(name):
     logger.info('Running the script to get the endpoints of the DocumentServer\n')
 
 
-def get_deploy_version():
+def get_deploy_version(apps):
     try:
         containers_list = apps.read_namespaced_deployment(name=deployment_name, namespace=ns)
         image = containers_list.spec.template.spec.containers[1].image
@@ -61,11 +48,11 @@ def get_deploy_version():
         return 'none'
 
 
-def get_ep_list(ep_ds):
+def get_ep_list(ep_ds, v1, apps):
     ds_ep_list = []
     ds_ep_list_tag = []
     total_result = {}
-    deploy_tag = get_deploy_version()
+    deploy_tag = get_deploy_version(apps)
     for ep_ip in ep_ds:
         try:
             pod_name = ep_ip.target_ref.name
@@ -110,6 +97,7 @@ def get_ds_status():
         if log_level == 'DEBUG':
             logger_endpoints_ds.debug(f'The Watch cycle for the "{ep_name}" endpoints is running')
         try:
+            v1, apps = _get_clients()
             w = watch.Watch()
             for event in w.stream(v1.list_namespaced_endpoints, namespace=ns, field_selector=field_name):
                 try:
@@ -121,7 +109,7 @@ def get_ds_status():
                         else:
                             if log_level == 'DEBUG':
                                 logger_endpoints_ds.debug(f'Endpoints "{ep_name}" received and sent')
-                            get_ep_list(ep_ds)
+                            get_ep_list(ep_ds, v1, apps)
                     else:
                         logger_endpoints_ds.warning(f'There are no addresses for endpoint "{ep_name}"')
                         requests.post(url_sending, data="none")

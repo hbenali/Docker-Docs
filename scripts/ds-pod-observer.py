@@ -3,7 +3,7 @@ import logging
 import requests
 import json
 import time
-from kubernetes import client, watch
+from kubernetes import client, config, watch
 
 label = os.environ["DS_POD_LABEL"]
 ep_port = os.environ["SHARD_PORT"]
@@ -11,26 +11,14 @@ log_level = os.environ.get('LOG_LEVEL')
 
 url_sending = f'http://127.0.0.1:8000/configuration_reserved'
 
-k8s_host = os.environ["KUBERNETES_SERVICE_HOST"]
-api_server = f'https://{k8s_host}'
-pathCrt = '/run/secrets/kubernetes.io/serviceaccount/ca.crt'
-pathToken = '/run/secrets/kubernetes.io/serviceaccount/token'
 pathNS = '/run/secrets/kubernetes.io/serviceaccount/namespace'
-
-with open(pathToken, "r") as f_tok:
-    token = f_tok.read()
-
 with open(pathNS, "r") as f_ns:
     ns = f_ns.read()
 
-configuration = client.Configuration()
-configuration.ssl_ca_cert = pathCrt
-configuration.host = api_server
-configuration.verify_ssl = True
-configuration.debug = False
-configuration.api_key = {"authorization": "Bearer " + token}
-client.Configuration.set_default(configuration)
-v1 = client.CoreV1Api()
+
+def _get_v1():
+    config.load_incluster_config()
+    return client.CoreV1Api()
 
 
 def init_logger(name):
@@ -44,7 +32,7 @@ def init_logger(name):
     logger.info('Running the script to get the Pods of the DocumentServer\n')
 
 
-def get_running_pod():
+def get_running_pod(v1):
     ds_ep_list = []
     total_result = {}
     pods_list = v1.list_namespaced_pod(namespace=ns, label_selector=label)
@@ -72,13 +60,14 @@ def get_ds_pod():
         if log_level == 'DEBUG':
             logger_pod_ds.debug(f'The Watch cycle for the "{label}" Pods is running')
         try:
+            v1 = _get_v1()
             w = watch.Watch()
             for event in w.stream(v1.list_namespaced_pod, namespace=ns, label_selector=label):
                 try:
                     if event['object'].metadata.deletion_timestamp:
                         if log_level == 'DEBUG':
                             logger_pod_ds.debug(f'Pods "{label}" received and sent')
-                        get_running_pod()
+                        get_running_pod(v1)
                 except Exception as msg_list_pod:
                     logger_pod_ds.error(f'Error when trying to list "{label}" Pods... {msg_list_pod}')
                     requests.post(url_sending, data="none")
