@@ -7,7 +7,7 @@ import time
 import subprocess
 import hashlib
 
-cm_name = "balancer-lua-config"
+cm_name = os.environ["BALANCER_CM_NAME"]
 cm_key = "balancer-lua.conf"
 cm_path = "/etc/nginx/mnt_config/balancer-lua.conf"
 cm_sha = None
