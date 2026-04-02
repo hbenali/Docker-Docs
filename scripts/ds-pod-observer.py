@@ -13,7 +13,7 @@ url_sending = f'http://127.0.0.1:8000/configuration_reserved'
 
 pathNS = '/run/secrets/kubernetes.io/serviceaccount/namespace'
 with open(pathNS, "r") as f_ns:
-    ns = f_ns.read()
+    ns = f_ns.read().strip()
 
 
 def _get_v1():
@@ -34,16 +34,19 @@ def init_logger(name):
 
 def get_running_pod(v1):
     ds_ep_list = []
-    total_result = {}
     pods_list = v1.list_namespaced_pod(namespace=ns, label_selector=label)
     if pods_list.items:
         for pod in pods_list.items:
             try:
-                if pod.status.container_statuses[("name" == "proxy")].ready == True:
-                    total_result['address'] = pod.status.pod_ip
-                    total_result['port'] = ep_port
-                    total_result['ver'] = pod.metadata.annotations["ds-ver-hash"]
-                    ds_ep_list.append(json.dumps(total_result))
+                for cs in pod.status.container_statuses or []:
+                    if cs.name == "proxy" and cs.ready:
+                        total_result = {
+                            'address': pod.status.pod_ip,
+                            'port': ep_port,
+                            'ver': pod.metadata.annotations["ds-ver-hash"]
+                        }
+                        ds_ep_list.append(json.dumps(total_result))
+                        break
             except Exception as msg_url:
                 logger_pod_ds.error(f'Failed to build a list of Running {pod.metadata.name} Pod: {ds_ep_list}... {msg_url}')
         if not ds_ep_list:

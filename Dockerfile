@@ -322,6 +322,8 @@ RUN apk update && \
     mkdir -p /etc/onlyoffice/documentserver-example/ && \
     chown -R ds:ds /etc/onlyoffice/ && \
     mv config/* /etc/onlyoffice/documentserver-example/ && \
+    ln -s /etc/onlyoffice/documentserver-example/data.json \
+    /var/www/onlyoffice/documentserver-example/config/data.json && \
     npm install
 
 EXPOSE 3000
