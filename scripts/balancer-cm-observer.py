@@ -15,7 +15,7 @@ log_level = os.environ.get('LOG_LEVEL')
 
 pathNS = '/run/secrets/kubernetes.io/serviceaccount/namespace'
 with open(pathNS, "r") as f_ns:
-    ns = f_ns.read()
+    ns = f_ns.read().strip()
 
 
 def _get_v1():

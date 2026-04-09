@@ -43,7 +43,7 @@ def running_services():
     label_name = f"kubernetes.io/service-name={ep_name}"
     pathNS = '/run/secrets/kubernetes.io/serviceaccount/namespace'
     with open(pathNS, "r") as f_ns:
-        ns = f_ns.read()
+        ns = f_ns.read().strip()
     config.load_incluster_config()
     disc = client.DiscoveryV1Api()
     try:
