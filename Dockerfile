@@ -184,9 +184,7 @@ COPY --chown=ds:ds --from=ds-service \
     /var/www/$COMPANY_NAME/documentserver-example/welcome
 COPY docker-entrypoint.sh proxy-docker-entrypoint.sh /usr/local/bin/
 COPY init-docker-entrypoint.sh /init/
-RUN sed 's|\(application\/zip.*\)|\1\n    application\/wasm wasm;|' \
-        -i /etc/nginx/mime.types && \
-    sed 's,\(listen.\+:\)\([0-9]\+\)\(.*;\),'"\18888\3"',' \
+RUN sed 's,\(listen.\+:\)\([0-9]\+\)\(.*;\),'"\18888\3"',' \
         -i /etc/nginx/conf.d/ds.conf && \
     sed '/access_log.*/d' -i /etc/nginx/includes/ds-common.conf && \
     sed '/error_log.*/d' -i /etc/nginx/includes/ds-common.conf && \
