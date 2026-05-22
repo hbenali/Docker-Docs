@@ -332,9 +332,10 @@ USER ds
 ENTRYPOINT ["/var/www/onlyoffice/documentserver-example/docker-entrypoint.sh", "npm", "start"]
 
 FROM python:3.11-bookworm AS builder
-RUN pip install redis psycopg2  PyMySQL pika python-qpid-proton func_timeout requests kubernetes flask
+RUN pip install redis psycopg2  PyMySQL pika python-qpid-proton func_timeout requests kubernetes==35.0.0 flask
 
 FROM python:3.11-slim-bookworm AS utils
+ARG COMPANY_NAME=onlyoffice
 ARG TARGETARCH
 ARG DS_VERSION_HASH
 ENV DS_VERSION_HASH=$DS_VERSION_HASH
@@ -364,6 +365,9 @@ RUN apt update && \
     chown -R ds:ds /scripts && \
     chmod +x /usr/local/bin/dumb-init && \
     rm -rf /var/lib/apt/lists/*
+COPY --chown=ds:ds --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/server/schema \
+    /scripts/schema
 COPY scripts/sqlplus /usr/bin/sqlplus
 COPY scripts/disql /usr/bin/disql
 COPY --from=onlyoffice/damengdb:8.1.2 /opt/dmdbms/bin /dameng

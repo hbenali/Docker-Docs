@@ -15,7 +15,7 @@ RUN apt-get update -y && \
     luarocks install lua-cjson && \
     luarocks install lua-resty-redis-connector && \
     python3 -m pip install --upgrade pip && \
-    pip install --no-cache-dir redis requests kubernetes && \
+    pip install --no-cache-dir redis requests kubernetes==35.0.0 && \
     rm -rf /var/lib/apt/lists/* && \
     wget -O /usr/local/bin/dumb-init https://github.com/Yelp/dumb-init/releases/download/v1.2.5/dumb-init_1.2.5_$(uname -m) && \
     chmod +x /usr/local/bin/dumb-init && \
