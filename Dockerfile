@@ -31,7 +31,7 @@ RUN dnf -y updateinfo list --security && \
                 nginx \
                 httpd-tools \
                 wget -y && \
-    pip3 install --no-cache-dir redis && \
+    pip3 install --no-cache-dir redis kubernetes && \
     wget -O /usr/local/bin/dumb-init https://github.com/Yelp/dumb-init/releases/download/v1.2.5/dumb-init_1.2.5_$(uname -m) && \
     chmod +x /usr/local/bin/dumb-init && \
     mkdir -p /oracle/instantclient /opt/oracle /home/ds /etc/nginx/includes && \
@@ -184,9 +184,7 @@ COPY --chown=ds:ds --from=ds-service \
     /var/www/$COMPANY_NAME/documentserver-example/welcome
 COPY docker-entrypoint.sh proxy-docker-entrypoint.sh /usr/local/bin/
 COPY init-docker-entrypoint.sh /init/
-RUN sed 's|\(application\/zip.*\)|\1\n    application\/wasm wasm;|' \
-        -i /etc/nginx/mime.types && \
-    sed 's,\(listen.\+:\)\([0-9]\+\)\(.*;\),'"\18888\3"',' \
+RUN sed 's,\(listen.\+:\)\([0-9]\+\)\(.*;\),'"\18888\3"',' \
         -i /etc/nginx/conf.d/ds.conf && \
     sed '/access_log.*/d' -i /etc/nginx/includes/ds-common.conf && \
     sed '/error_log.*/d' -i /etc/nginx/includes/ds-common.conf && \
@@ -302,6 +300,7 @@ RUN apk update && \
     git clone \
       --depth 1 \
       --recurse-submodules \
+      --branch master \
       https://github.com/ONLYOFFICE/document-server-integration.git && \
     mkdir -p /var/www/onlyoffice/documentserver-example && \
     cp -r ./document-server-integration/web/documentserver-example/nodejs/. \
@@ -322,6 +321,8 @@ RUN apk update && \
     mkdir -p /etc/onlyoffice/documentserver-example/ && \
     chown -R ds:ds /etc/onlyoffice/ && \
     mv config/* /etc/onlyoffice/documentserver-example/ && \
+    ln -s /etc/onlyoffice/documentserver-example/data.json \
+    /var/www/onlyoffice/documentserver-example/config/data.json && \
     npm install
 
 EXPOSE 3000
@@ -331,8 +332,10 @@ USER ds
 ENTRYPOINT ["/var/www/onlyoffice/documentserver-example/docker-entrypoint.sh", "npm", "start"]
 
 FROM python:3.11-bookworm AS builder
-RUN pip install redis psycopg2  PyMySQL pika python-qpid-proton func_timeout requests kubernetes flask
+RUN pip install redis psycopg2  PyMySQL pika python-qpid-proton func_timeout requests kubernetes==35.0.0 flask
+
 FROM python:3.11-slim-bookworm AS utils
+ARG COMPANY_NAME=onlyoffice
 ARG TARGETARCH
 ARG DS_VERSION_HASH
 ENV DS_VERSION_HASH=$DS_VERSION_HASH
@@ -362,6 +365,9 @@ RUN apt update && \
     chown -R ds:ds /scripts && \
     chmod +x /usr/local/bin/dumb-init && \
     rm -rf /var/lib/apt/lists/*
+COPY --chown=ds:ds --from=ds-service \
+    /var/www/$COMPANY_NAME/documentserver/server/schema \
+    /scripts/schema
 COPY scripts/sqlplus /usr/bin/sqlplus
 COPY scripts/disql /usr/bin/disql
 COPY --from=onlyoffice/damengdb:8.1.2 /opt/dmdbms/bin /dameng

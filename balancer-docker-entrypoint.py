@@ -4,6 +4,7 @@ import sched
 import time
 import re
 import os
+from kubernetes import client, config
 
 
 def init_logger(name):
@@ -38,12 +39,26 @@ def set_nginx_parameter():
 
 
 def running_services():
+    ep_name = os.environ["DS_EP_NAME"]
+    label_name = f"kubernetes.io/service-name={ep_name}"
+    pathNS = '/run/secrets/kubernetes.io/serviceaccount/namespace'
+    with open(pathNS, "r") as f_ns:
+        ns = f_ns.read().strip()
+    config.load_incluster_config()
+    disc = client.DiscoveryV1Api()
     try:
         running_nginx = ["/usr/local/openresty/bin/openresty", "-g", "daemon off;"]
         running_cm_observer = ["python3", "/scripts/balancer-cm-observer.py"]
         running_get_ds_ep = ["python3", "/scripts/ds-ep-observer.py"]
         running_get_ds_pod = ["python3", "/scripts/ds-pod-observer.py"]
-        all_cmd = [running_nginx, running_cm_observer, running_get_ds_ep, running_get_ds_pod]
+        all_cmd = [running_nginx, running_cm_observer, running_get_ds_ep]
+        try:
+            disc.list_namespaced_endpoint_slice(namespace=ns, label_selector=label_name, _preload_content=False)
+        except Exception as msg_get_ep_slices:
+            logger_endpoints_ds.warning(f'EndpointSlice API probe failed: {msg_get_ep_slices}')
+            all_cmd.append(running_get_ds_pod)
+        else:
+            logger_endpoints_ds.info('EndpointSlice API probe successfully')
         for cmd in all_cmd:
             cmd_process = subprocess.Popen(cmd)
             logger_endpoints_ds.info(f'The "{cmd_process.pid}" process has been running')
